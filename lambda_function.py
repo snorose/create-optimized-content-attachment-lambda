@@ -22,7 +22,7 @@ FFPROBE_BIN = "/opt/bin/ffprobe"
 
 def resize_content_image(image_path, resized_path, max_size=1080, quality=70):
     """
-    본문용 이미지 리사이징 (긴 변 기준 max_size 제한), WebP 포맷
+    본문용 이미지 리사이징 (BICUBIC 변경으로 속도 향상)
     """
     # 이미지 파일을 열고 자동으로 닫히도록 with 구문 사용
     with Image.open(image_path) as image:
@@ -38,12 +38,14 @@ def resize_content_image(image_path, resized_path, max_size=1080, quality=70):
             scale = max_size / max_dimension
             new_width = int(width * scale)
             new_height = int(height * scale)
-            resized = image.resize((new_width, new_height), Image.LANCZOS)
+            
+            # LANCZOS -> BICUBIC으로 변경하여 속도 향상
+            resized = image.resize((new_width, new_height), Image.BICUBIC)
         else:
             # 이미지가 충분히 작으면 원본 복사본 생성
             resized = image.copy()
 
-        # WebP 포맷으로 저장 (품질 70%, 최적화 옵션 적용)
+        # WebP 저장
         resized.save(resized_path, format='WEBP', quality=quality, optimize=True)
 
 def get_video_resolution(video_path):
@@ -72,9 +74,9 @@ def get_video_resolution(video_path):
             pass
     return None, None, None
 
-def resize_content_video(download_path, resized_path, max_size=720): #, max_size, quality):
+def resize_content_video(download_path, resized_path, max_size=720):
     """
-    본문용 비디오 리사이징
+    본문용 비디오 리사이징 (속도 최적화 버전)
     """
     try:
         width, height, duration = get_video_resolution(download_path)
@@ -83,34 +85,45 @@ def resize_content_video(download_path, resized_path, max_size=720): #, max_size
             return False
 
         max_dimension = max(width, height)
-        # 영상 길이, 해상도 기준으로 패스
+        
+        # 원본이 목표 크기보다 작으면 인코딩 없이 바로 복사
         if max_dimension <= max_size:
             shutil.copy(download_path, resized_path)
             print(f"[SKIP] Video is already small. Copied as-is to {resized_path}")
             return True
 
-        # 해상도 조절 옵션
         scale_filter = f"scale={max_size}:-2" if width >= height else f"scale=-2:{max_size}"
 
-
         cmd = [
-            FFMPEG_BIN,             # ffmpeg 바이너리 경로
+            FFMPEG_BIN,
+            "-y",
             "-i", download_path,
             "-vf", scale_filter,
             "-c:v", "libx264",
-            "-preset", "fast",
-            "-b:v", "1000k",        # 비디오 bit-rate
-            "-c:a", "copy",         # 오디오 그대로 복사
+            
+            # 인코딩 속도 우선 설정
+            "-preset", "ultrafast",
+            "-tune", "fastdecode",
+            
+            # 멀티 코어 활용
+            "-threads", "0",        
+            
+            "-b:v", "1000k",        # 비디오 비트레이트 제한
+            "-maxrate", "1000k",    # 최대 비트레이트 제한
+            "-bufsize", "2000k",    
+            
+            "-c:a", "copy",         # 오디오는 재인코딩 없이 복사
+            "-movflags", "+faststart",
             resized_path
         ]
-        print(f"[DEBUG] Running FFmpeg: {' '.join(cmd)}")
-        # subprocess.check_call(cmd)
+        
+        print(f"[DEBUG] Running FFmpeg Optimized: {' '.join(cmd)}")
+        
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         if result.returncode != 0:
             print(f"[FFmpeg FAILED] exit {result.returncode}")
-            print("STDOUT:", result.stdout)
-            print("STDERR:", result.stderr)
+            print("STDERR (Last 500 chars):", result.stderr[-500:])
             return False
 
         print(f"[OK] Resized video saved to {resized_path}")
