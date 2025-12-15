@@ -1,3 +1,3 @@
 boto3>=1.34.0
 Pillow>=10.0.0
-six>=1.16.0
+six>=1.16.0 # 콘솔에서는 six.py로 사용하였으나 requirements.txt에서 패키지명으로 대체

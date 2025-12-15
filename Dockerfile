@@ -1,3 +1,4 @@
+# 파이썬 버전 3.12 명시
 FROM public.ecr.aws/lambda/python:3.12
 
 # 시스템 패키지 업데이트 및 FFmpeg 다운로드를 위한 도구 설치

@@ -10,6 +10,7 @@ s3_client = boto3.client('s3')
 sqs_client = boto3.client('sqs')
 resized_bucket = 'snorose-bucket-resized'
 
+# 배포 후 수동 추가 필요
 SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
 IMG_EXT_LIST = ("jpg","jpeg","png","jfif","bmp","webp")
