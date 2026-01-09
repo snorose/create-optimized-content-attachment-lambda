@@ -14,7 +14,7 @@ resized_bucket = 'snorose-bucket-resized'
 SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
 IMG_EXT_LIST = ("jpg","jpeg","png","jfif","bmp","webp")
-VDO_EXT_LIST = ("mp4","mov","avi","mkv")
+VDO_EXT_LIST = ("mp4","mov")
 
 FFMPEG_BIN = "/opt/bin/ffmpeg"
 FFPROBE_BIN = "/opt/bin/ffprobe"
