@@ -1,4 +1,5 @@
 import shutil
+import aioboto3
 import boto3
 import os
 import subprocess
@@ -146,7 +147,7 @@ def extract_post_id(key_path):
     # 조건에 맞지 않으면 None 반환
     return None
 
-def send_optimization_complete_message(s3_filename, success, error_message=None):
+async def send_optimization_complete_message(s3_filename, success, error_message=None):
     """
     최적화 완료 메시지를 SQS로 전송
     """
@@ -163,12 +164,17 @@ def send_optimization_complete_message(s3_filename, success, error_message=None)
         if error_message:
             message["errorMessage"] = error_message
 
-        sqs_client.send_message(
-            QueueUrl=SQS_QUEUE_URL,
-            MessageBody=json.dumps(message)
-        )
-
-        print(f"[SQS] Sent optimization complete message: {message}")
+        # aioboto3 세션 생성
+        session = aioboto3.Session()
+        try:
+            async with session.client("sqs") as sqs_client:
+                response = await sqs_client.send_message(
+                    QueueUrl=SQS_QUEUE_URL,
+                    MessageBody=json.dumps(message)
+                )
+                # 전송 결과 확인
+                if 'MessageId' in response:
+                    print(f"[SQS] Sent success. MessageId: {response['MessageId']}; Sent optimization complete message: {message}")
 
     except Exception as e:
         print(f"[SQS ERROR] Failed to send optimization complete message: {e}")
@@ -198,7 +204,7 @@ def video_handler(post_id, base_name, filename, download_path):
     print(f"Creating content video: {filename} -> {resized_filename}")
     return resized_key, upload_path, content_type
 
-def lambda_handler(event, context):
+async def lambda_handler(event, context):
     download_path = None
     upload_path = None
 
@@ -249,7 +255,7 @@ def lambda_handler(event, context):
                     print(error_message)
                     # 비디오 처리 실패 시에도 SQS 메시지 전송
                     if s3_filename:
-                        send_optimization_complete_message(
+                        await send_optimization_complete_message(
                             s3_filename=s3_filename,
                             success=False,
                             error_message=error_message
@@ -261,7 +267,7 @@ def lambda_handler(event, context):
                 print(error_message)
                 # 지원하지 않는 파일 형식도 SQS 메시지 전송
                 if s3_filename:
-                    send_optimization_complete_message(
+                    await send_optimization_complete_message(
                         s3_filename=s3_filename,
                         success=False,
                         error_message=error_message
@@ -285,7 +291,7 @@ def lambda_handler(event, context):
 
             # ⭐ 성공 시 SQS 메시지 전송
             if s3_filename:
-                send_optimization_complete_message(
+                await send_optimization_complete_message(
                     s3_filename=s3_filename,
                     success=True
                 )
@@ -299,7 +305,7 @@ def lambda_handler(event, context):
 
             # ⭐ 실패 시에도 SQS 메시지 전송 (s3_filename이 있는 경우만)
             if s3_filename:
-                send_optimization_complete_message(
+                await send_optimization_complete_message(
                     s3_filename=s3_filename,
                     success=False,
                     error_message=error_message
