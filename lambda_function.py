@@ -276,6 +276,7 @@ def lambda_handler(event, context):
                     resized_key,
                     ExtraArgs={
                         'ContentType': content_type,
+                        'CacheControl': 'max-age=31536000, public',
                     }
                 )
             file_size_bytes = os.path.getsize(upload_path)
