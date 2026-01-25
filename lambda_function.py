@@ -7,11 +7,7 @@ from urllib.parse import unquote_plus
 from PIL import Image, ImageOps
 
 s3_client = boto3.client('s3')
-sqs_client = boto3.client('sqs')
 resized_bucket = 'snorose-bucket-resized'
-
-# 배포 후 수동 추가 필요
-SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
 IMG_EXT_LIST = ("jpg","jpeg","png","jfif","bmp","webp")
 VDO_EXT_LIST = ("mp4","mov")
@@ -146,35 +142,6 @@ def extract_post_id(key_path):
     # 조건에 맞지 않으면 None 반환
     return None
 
-def send_optimization_complete_message(s3_filename, success, error_message=None):
-    """
-    최적화 완료 메시지를 SQS로 전송
-    """
-    if not SQS_QUEUE_URL:
-        print("[SQS] SQS_QUEUE_URL not configured, skipping message")
-        return
-        
-    try:
-        message = {
-            "s3FileName": s3_filename,
-            "success": success
-        }
-        
-        if error_message:
-            message["errorMessage"] = error_message
-
-        sqs_client.send_message(
-            QueueUrl=SQS_QUEUE_URL,
-            MessageBody=json.dumps(message)
-        )
-
-        print(f"[SQS] Sent optimization complete message: {message}")
-
-    except Exception as e:
-        print(f"[SQS ERROR] Failed to send optimization complete message: {e}")
-        # SQS 전송 실패 시 Lambda 실패로 처리하여 재시도 유발 (최대 3회)
-        raise RuntimeError(f"SQS message send failed: {e}")
-
 def image_handler(post_id, base_name, filename, download_path):
     resized_filename = f"resized-{base_name}.webp"
     upload_path = f'/tmp/{resized_filename}'
@@ -203,10 +170,7 @@ def lambda_handler(event, context):
     upload_path = None
 
     for record in event.get('Records', []):
-        # SQS 메시지 전송을 위한 변수들
         s3_filename = None
-        success = False
-        error_message = None
 
         # 임시 파일 경로 초기화 (예외 처리에서 사용하기 위해)
         try:
@@ -247,25 +211,11 @@ def lambda_handler(event, context):
                 if not result:
                     error_message = f"Video resize failed for {filename}"
                     print(error_message)
-                    # 비디오 처리 실패 시에도 SQS 메시지 전송
-                    if s3_filename:
-                        send_optimization_complete_message(
-                            s3_filename=s3_filename,
-                            success=False,
-                            error_message=error_message
-                        )
                     continue
                 resized_key, upload_path, content_type = result
             else:
                 error_message = f"Unsupported file format: {filename}"
                 print(error_message)
-                # 지원하지 않는 파일 형식도 SQS 메시지 전송
-                if s3_filename:
-                    send_optimization_complete_message(
-                        s3_filename=s3_filename,
-                        success=False,
-                        error_message=error_message
-                    )
                 continue
 
             # 리사이징된 이미지를 해당 S3 버킷에 업로드
@@ -284,28 +234,11 @@ def lambda_handler(event, context):
 
             print(f"[OK] Successfully processed: {key} -> {resized_bucket}/{resized_key}, {file_size_mb:.2f}MB used.")
 
-            # ⭐ 성공 시 SQS 메시지 전송
-            if s3_filename:
-                send_optimization_complete_message(
-                    s3_filename=s3_filename,
-                    success=True
-                )
-            else:
-                print(f"[WARNING] S3 filename not found, skipping SQS message for successful processing of {key}")
-
         except Exception as e:
             error_message = str(e)
 
             print(f"Error processing file {key} from bucket {bucket}: {e}")
 
-            # ⭐ 실패 시에도 SQS 메시지 전송 (s3_filename이 있는 경우만)
-            if s3_filename:
-                send_optimization_complete_message(
-                    s3_filename=s3_filename,
-                    success=False,
-                    error_message=error_message
-                )
-            # SQS가 재시도를 담당하므로 Lambda는 정상 종료
         finally:
             try:
                 # 다운로드된 원본 파일이 존재하면 삭제
