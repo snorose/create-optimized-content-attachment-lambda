@@ -3,13 +3,14 @@ import json
 import base64
 import re
 import time
+import os
 from urllib.parse import quote_plus
 
-REGION_NAME = "ap-northeast-2"
-BUCKET_NAME = "snorose-bucket"
+REGION_NAME = os.environ.get('REGION_NAME')
+BUCKET_NAME = os.environ.get('BUCKET_NAME')
 TEST_KEY = "post-attachment/1718321/test_video.mp4" 
-FUNC_CONSOLE = "CreateOptimizedContentAttachment"
-FUNC_IMAGE = "CreateOptimizedContentAttachmentECR"
+LAMBDA_FUNCTION_NAME = os.environ.get('LAMBDA_FUNCTION_NAME')
+ECR_REPOSITORY_NAME = os.environ.get('ECR_REPOSITORY_NAME')
 
 client = boto3.client('lambda', region_name=REGION_NAME)
 
