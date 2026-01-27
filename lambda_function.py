@@ -7,7 +7,7 @@ from urllib.parse import unquote_plus
 from PIL import Image, ImageOps
 
 s3_client = boto3.client('s3')
-resized_bucket = 'snorose-bucket-resized'
+resized_bucket = os.environ.get('RESIZED_BUCKET')
 
 IMG_EXT_LIST = ("jpg","jpeg","png","jfif","bmp","webp")
 VDO_EXT_LIST = ("mp4","mov")
