@@ -4,18 +4,74 @@ on:
   push:
     branches: [ "develop", "main" ]
 
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Manual deployment target"
+        required: true
+        type: choice
+        options:
+          - staging
+
 # OIDC 인증을 위한 권한 설정
 permissions:
-  id-token: write 
+  id-token: write
   contents: read
-
 jobs:
-  deploy:
-    name: Build, Push to ECR, and Deploy to Lambda
+  resolve:
+    name: Resolve deployment target
     runs-on: ubuntu-latest
 
-    # 브랜치에 따라 사용할 환경 선택
-    environment: ${{ github.ref == 'refs/heads/main' && 'PROD' || 'DEV' }}
+    outputs:
+      env_type: ${{ steps.resolve.outputs.env_type }}
+      github_environment: ${{ steps.resolve.outputs.github_environment }}
+
+    steps:
+      - name: Resolve target environment
+        id: resolve
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            ENV_TYPE="${{ github.event.inputs.target_env }}"
+
+            if [[ "$ENV_TYPE" != "staging" ]]; then
+              echo "Only staging manual deployment is allowed."
+              exit 1
+            fi
+          
+            GITHUB_ENVIRONMENT="STAGING"
+          else
+            case "${GITHUB_REF_NAME}" in
+              develop)
+                ENV_TYPE="dev"
+                GITHUB_ENVIRONMENT="DEV"
+                ;;
+              main)
+                ENV_TYPE="prod"
+                GITHUB_ENVIRONMENT="PROD"
+                ;;
+              *)
+                echo "Unsupported branch for push deployment: ${GITHUB_REF_NAME}"
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "env_type=$ENV_TYPE" >> "$GITHUB_OUTPUT"
+          echo "github_environment=$GITHUB_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+
+          echo "--- Event: ${GITHUB_EVENT_NAME}"
+          echo "--- Branch: ${GITHUB_REF_NAME}"
+          echo "--- Env type: $ENV_TYPE"
+          echo "--- GitHub environment: $GITHUB_ENVIRONMENT"
+
+  deploy:
+    name: Build, Push to ECR, and Deploy to Lambda
+    needs: resolve
+    runs-on: ubuntu-latest
+
+    # resolve job에서 결정한 GitHub Environment 사용
+    environment: ${{ needs.resolve.outputs.github_environment }}
 
     steps:
     - name: Checkout code
@@ -25,7 +81,7 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ vars.AWS_ROLE_ARN }} 
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
         aws-region: ${{ vars.AWS_REGION }}
 
     # Amazon ECR 로그인
@@ -46,14 +102,14 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
-        echo "image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
     # Lambda 함수 업데이트
     - name: Deploy new image to AWS Lambda
       run: |
         aws lambda update-function-code \
-          --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
-          --image-uri ${{ steps.build-image.outputs.image_uri }}
+          --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+          --image-uri "${{ steps.build-image.outputs.image_uri }}"
 
     # 코드 업데이트가 완료될 때까지 대기
     - name: Wait for Lambda function update to complete
@@ -65,7 +121,7 @@ jobs:
     - name: Update Lambda Environment Variables
       run: |
         aws lambda update-function-configuration \
-          --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
+          --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
           --environment "Variables={ \
             REGION_NAME=${{ vars.AWS_REGION }}, \
             LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME }}, \
