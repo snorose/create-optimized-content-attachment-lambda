@@ -129,3 +129,16 @@ jobs:
             BUCKET_NAME=${{ vars.BUCKET_NAME }}, \
             RESIZED_BUCKET=${{ vars.RESIZED_BUCKET }} \
           }"
+
+    - name: Summarize deployment metadata
+      shell: bash
+      run: |
+        {
+          echo "## Deployment Metadata"
+          echo ""
+          echo "- Branch: ${{ github.ref_name }}"
+          echo "- Environment: ${{ needs.build.outputs.github_environment }}"
+          echo "- LAMBDA_FUNCTION_NAME : ${{ vars.LAMBDA_FUNCTION_NAME }}"
+          echo "- ECR Repository: ${{ vars.ECR_REPOSITORY_NAME }}"
+          echo "- Lambda Function: ${{ vars.LAMBDA_FUNCTION_NAME }}"
+        } >> "$GITHUB_STEP_SUMMARY"
